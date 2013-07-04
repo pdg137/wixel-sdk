@@ -2,6 +2,7 @@
 #include <usb.h>
 #include <usb_com.h>
 #include <adc.h>
+#include <stdio.h>
 
 void timer3Init()
 {
@@ -29,13 +30,42 @@ void timer3Init()
     // value of N < 255 results in a duty cycle of N/256.
 }
 
+int16 position = 0;
+
+// if val is negative, go left
+// if val is positive, go right
+void setMotors(int16 val)
+{
+	if(val < 0)
+	{
+		T3CC0 = 255;
+		T3CC1 = 255+val;
+	}
+	else
+	{
+		T3CC0 = 255-val;
+		T3CC1 = 255;
+	}
+}
+
 void updatePwm()
 {
-    // Set the duty cycle on channel 0 (P1_3) to 0.
-    T3CC0 = 0;
+	setMotors(position);
+}
 
-    // Make the duty cycle on channel 1 (P1_4) vary with ADC3
-    T3CC1 = adcRead(3 |  ADC_BITS_7);
+void getPosition()
+{
+	static uint8 XDATA buf[50];
+	uint8 bytes_to_send;
+	
+	// note: higher values mean darker
+	uint16 left = adcRead(4 |  ADC_BITS_7);
+	uint16 right = adcRead(3 |  ADC_BITS_7);
+	if(left > right) position = -255;
+	else position = 255;
+	bytes_to_send = sprintf(buf, "%3d %3d\r\n",left, right);
+	if(usbComTxAvailable() >= bytes_to_send)
+		usbComTxSend(buf, bytes_to_send);
 }
 
 void main()
@@ -48,7 +78,8 @@ void main()
     {
         boardService();
         usbShowStatusWithGreenLed();
-        updatePwm();
+		getPosition();
+        //updatePwm();
         usbComService();
     }
 }
