@@ -4,6 +4,9 @@
 #include <adc.h>
 #include <stdio.h>
 
+int32 CODE param_p = 75;
+int32 CODE param_d = 2000;
+
 void timer3Init()
 {
     // Start the timer in free-running mode and set the prescaler.
@@ -31,6 +34,7 @@ void timer3Init()
 }
 
 int16 position = 0;
+int16 last_position = 0;
 
 // if val is negative, go left
 // if val is positive, go right
@@ -49,8 +53,22 @@ void setMotors(int16 val)
 }
 
 void updatePwm()
-{
-	setMotors(position);
+{	
+	int16 diff = position - last_position;
+	int16 pid;
+	last_position = position;
+	
+	pid = -param_p*position/100 - param_d*diff/100;
+	if(pid < -255) pid = -255;
+	if(pid > 255) pid = 255;
+	
+	if(usbPowerPresent())
+	{
+		T3CC0 = 0;
+		T3CC1 = 0;
+		return;
+	}
+	setMotors(pid);
 }
 
 void getPosition()
@@ -59,11 +77,22 @@ void getPosition()
 	uint8 bytes_to_send;
 	
 	// note: higher values mean darker
-	uint16 left = adcRead(4 |  ADC_BITS_7);
-	uint16 right = adcRead(3 |  ADC_BITS_7);
-	if(left > right) position = -255;
-	else position = 255;
-	bytes_to_send = sprintf(buf, "%3d %3d\r\n",left, right);
+	int16 left = adcRead(4) - 1200;
+	int16 right = adcRead(3) - 1200;
+	if(left < 0) left = 0;
+	if(right < 0) right = 0;
+	
+	if(left == 0 && right == 0)
+	{
+		if(position <  0)
+			position = -1000;
+		else
+			position = 1000;
+		return;
+	}
+	
+	position = (-left + right)*(int32)1000/(left+right);
+	bytes_to_send = sprintf(buf, "%3d %3d %4d\r\n",left, right, position);
 	if(usbComTxAvailable() >= bytes_to_send)
 		usbComTxSend(buf, bytes_to_send);
 }
@@ -79,7 +108,7 @@ void main()
         boardService();
         usbShowStatusWithGreenLed();
 		getPosition();
-        //updatePwm();
+        updatePwm();
         usbComService();
     }
 }
