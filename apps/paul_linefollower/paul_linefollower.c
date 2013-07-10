@@ -4,8 +4,11 @@
 #include <adc.h>
 #include <stdio.h>
 
-int32 CODE param_p = 75;
-int32 CODE param_d = 2000;
+int32 CODE param_p = 40;
+int32 CODE param_d = 170;
+int32 CODE param_s = 255;
+
+static int32 variable_d = param_d;
 
 void timer3Init()
 {
@@ -35,6 +38,8 @@ void timer3Init()
 
 int16 position = 0;
 int16 last_position = 0;
+int16 diff = 0;
+int16 pid = 0;
 
 // if val is negative, go left
 // if val is positive, go right
@@ -42,25 +47,24 @@ void setMotors(int16 val)
 {
 	if(val < 0)
 	{
-		T3CC0 = 255;
-		T3CC1 = 255+val;
+		T3CC0 = param_s;
+		T3CC1 = param_s+val;
 	}
 	else
 	{
-		T3CC0 = 255-val;
-		T3CC1 = 255;
+		T3CC0 = param_s-val;
+		T3CC1 = param_s;
 	}
 }
 
 void updatePwm()
 {	
-	int16 diff = position - last_position;
-	int16 pid;
+	diff = position - last_position;
 	last_position = position;
 	
-	pid = -param_p*position/100 - param_d*diff/100;
-	if(pid < -255) pid = -255;
-	if(pid > 255) pid = 255;
+	pid = -param_p*position/100 - param_d*diff/10;
+	if(pid < -param_s) pid = -param_s;
+	if(pid > param_s) pid = param_s;
 	
 	if(usbPowerPresent())
 	{
@@ -71,14 +75,26 @@ void updatePwm()
 	setMotors(pid);
 }
 
+uint16 readAverage(uint8 channel)
+{
+	uint8 i;
+	uint32 total=0;
+	for(i=0;i<4;i++)
+	{
+		total += adcRead(channel);
+	}
+	return total/4;
+}
+
 void getPosition()
 {
+	static int count = 0;
 	static uint8 XDATA buf[50];
 	uint8 bytes_to_send;
 	
 	// note: higher values mean darker
-	int16 left = adcRead(4) - 1200;
-	int16 right = adcRead(3) - 1200;
+	int16 left = readAverage(4) - 900;
+	int16 right = readAverage(3) - 900;
 	if(left < 0) left = 0;
 	if(right < 0) right = 0;
 	
@@ -92,9 +108,17 @@ void getPosition()
 	}
 	
 	position = (-left + right)*(int32)1000/(left+right);
-	bytes_to_send = sprintf(buf, "%3d %3d %4d\r\n",left, right, position);
-	if(usbComTxAvailable() >= bytes_to_send)
-		usbComTxSend(buf, bytes_to_send);
+	
+	count ++;
+	if(count == 100)
+	{
+		variable_d++;
+		count = 0;
+		LED_YELLOW_TOGGLE();
+		bytes_to_send = sprintf(buf, "%3d %3d %4d %4d\r\n",left, right, position, diff);
+		if(usbComTxAvailable() >= bytes_to_send)
+			usbComTxSend(buf, bytes_to_send);
+	}
 }
 
 void main()
