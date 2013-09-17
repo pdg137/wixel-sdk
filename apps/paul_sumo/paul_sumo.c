@@ -138,17 +138,9 @@ void updatePwmFight()
 
 	if(left_sensor_avg > 2 && right_sensor_avg > 2)
     {
-      state = LOCK;
+      state = ATTACK;
       state_start = getMs();
       setMotors(0,0);
-    }
-    break;
-  case LOCK:
-    setMotors(0,0);
-    if(getMs() - state_start > 100)
-    {
-      state_start = getMs();
-      state = ATTACK;
     }
     break;
   case ATTACK:
@@ -163,8 +155,10 @@ void updatePwmFight()
       state_start = getMs();
       state = SPIN;
     }
+    else if(last_on_right)
+      setMotors(255,0);
     else
-      setMotors(100,100);
+      setMotors(0,255);
     break;
   }
 }
