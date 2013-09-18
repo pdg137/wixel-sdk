@@ -20,6 +20,14 @@ uint32 elapsedTime()
   return getMs() - start_ms;
 }
 
+uint8 buttonPressed()
+{
+  setPort0PullType(HIGH);
+  setDigitalInput(00,PULLED);
+  setDigitalOutput(03,LOW);
+  return !isPinHigh(00);
+}
+
 void timer3Init()
 {
   // Start the timer in free-running mode and set the prescaler.
@@ -61,116 +69,132 @@ int8 leftSensor()
   return !isPinHigh(11);
 }
 
-int16 left_sensor_avg = 0;
-int16 right_sensor_avg = 0;
-
-void checkSensors()
-{
-  static uint16 index = 0;
-  static uint8 history_left[100];
-  static uint8 history_right[100];
-
-  left_sensor_avg -= history_left[index];
-  right_sensor_avg -= history_right[index];
-  history_left[index] = leftSensor();
-  history_right[index] = rightSensor();
-  left_sensor_avg += history_left[index];
-  right_sensor_avg += history_right[index];
-
-  index += 1;
-  if(index >= sizeof(history_left))
-    index = 0;
-}
-
 void setMotors(int16 left, int16 right)
 {
   if(left < 0)
   {
     T3CC1 = -left;
-    setDigitalOutput(15, 1);
-  }
-  else
-  {
-    T3CC1 = left;
-    setDigitalOutput(15, 0);
-  }
-  if(right < 0)
-  {
-    T3CC0 = -right;
     setDigitalOutput(16, 1);
   }
   else
   {
-    T3CC0 = right;
+    T3CC1 = left;
     setDigitalOutput(16, 0);
+  }
+  if(right < 0)
+  {
+    T3CC0 = -right;
+    setDigitalOutput(15, 1);
+  }
+  else
+  {
+    T3CC0 = right;
+    setDigitalOutput(15, 0);
   }
 }
 
 typedef enum State
 {
+  WAIT_BUTTON,
+  DELAY,
+  RUN,
   SPIN,
-  LOCK,
-  ATTACK
+  ATTACK,
+  BACKUP
 } State;
 
-void updatePwmFight()
-{	
-  // 0 SPIN
-  // 1 LOCK
-  // 2 ATTACK
-
-  static State state = SPIN;
+void updateState()
+{
+  static State state = WAIT_BUTTON;
   static uint32 state_start = 0;
+  static uint32 last_seen = 0;
   static uint8 last_on_right = 0;
+  static int32 reverse;
 
   if(leftSensor() && !rightSensor())
     last_on_right = 0;
-  if(!leftSensor() && rightSensor())
+  if(rightSensor() && !leftSensor())
     last_on_right = 1;
+  if(rightSensor() || leftSensor())
+    last_seen = getMs();
+
+  LED_RED(leftSensor());
+  LED_YELLOW(rightSensor());
 
   switch(state)
   {
-  case SPIN:
-    if(last_on_right)
-      setMotors(255,-255);
-    else
-      setMotors(-255,255);
-
-	if(left_sensor_avg > 2 && right_sensor_avg > 2)
+  case WAIT_BUTTON:
+    setMotors(0,0);
+    if(buttonPressed())
     {
-      state = ATTACK;
       state_start = getMs();
-      setMotors(0,0);
+      state = DELAY;
     }
     break;
-  case ATTACK:
-    if(left_sensor_avg > 2 && right_sensor_avg > 2)
-      setMotors(255,255);
-	else if(left_sensor_avg > 2)
-      setMotors(0,255);
-	else if(right_sensor_avg > 2)
-      setMotors(255,0);
-	else if(getMs() - state_start > 100)
+  case DELAY:
+    setMotors(0,0);
+    if(getMs() - state_start > 5000)
+    {
+      state_start = getMs();
+      state = RUN;
+    }
+    LED_YELLOW((getMs() - state_start) & 0x80);
+    LED_RED((getMs() - state_start) & 0x80);
+    break;
+  case RUN:
+    setMotors(255,255);
+    if(getMs() - state_start > 200)
     {
       state_start = getMs();
       state = SPIN;
     }
-    else if(last_on_right)
-      setMotors(255,0);
+    break;
+  case SPIN:
+    reverse = -255 + (getMs() - state_start)/16;
+    if(reverse > 50)
+      reverse = 50;
+
+    if(last_on_right)
+      setMotors(255,reverse);
     else
-      setMotors(0,255);
+      setMotors(reverse,255);
+
+	if(leftSensor() || rightSensor())
+    {
+      state = ATTACK;
+      state_start = getMs();
+    }
+    break;
+  case ATTACK:
+    if(getMs() - state_start > 750)
+    {
+      state_start = getMs();
+      state = BACKUP;
+    }
+    else if(leftSensor() && rightSensor())
+      setMotors(255,255);
+	else if(leftSensor())
+      setMotors(100,255);
+	else if(rightSensor())
+      setMotors(255,100);
+	else if(getMs() - last_seen > 50)
+    {
+      state_start = getMs();
+      state = SPIN;
+    }
+    break;
+  case BACKUP:
+    if(getMs() - state_start > 300)
+    {
+      state_start = getMs();
+      state = ATTACK;
+    }
+    else if(getMs() - state_start > 100)
+      setMotors(128,128);
+    else
+      setMotors(-255,-255);
     break;
   }
-}
-
-void updatePwm()
-{
-  if(elapsedTime() < 5000)
-    setMotors(0,0);
-  else if(elapsedTime() < 5250)
-    setMotors(255,255);
-  else
-    updatePwmFight();
 }
 
 void main()
@@ -180,14 +204,11 @@ void main()
   timer3Init();
   resetTime();
   
-  LED_YELLOW(1);
-
   while(1)
   {
     boardService();
     usbShowStatusWithGreenLed();
-    checkSensors();
-    updatePwm();
+    updateState();
     usbComService();
   }
 }
