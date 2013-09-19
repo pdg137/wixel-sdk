@@ -142,22 +142,22 @@ void updateState()
     LED_RED((getMs() - state_start) & 0x80);
     break;
   case RUN:
-    setMotors(255,255);
-    if(getMs() - state_start > 200)
+    setMotors(200,200);
+    if(getMs() - state_start > 250)
     {
       state_start = getMs();
       state = SPIN;
     }
     break;
   case SPIN:
-    reverse = -255 + (getMs() - state_start)/16;
+    reverse = -200 + (getMs() - state_start)/16;
     if(reverse > 50)
       reverse = 50;
 
     if(last_on_right)
-      setMotors(255,reverse);
+      setMotors(200,reverse);
     else
-      setMotors(reverse,255);
+      setMotors(reverse,200);
 
 	if(leftSensor() || rightSensor())
     {
@@ -189,8 +189,10 @@ void updateState()
       state_start = getMs();
       state = ATTACK;
     }
-    else if(getMs() - state_start > 100)
+    else if(getMs() - state_start > 200)
       setMotors(128,128);
+    else if(getMs() - state_start > 100)
+      setMotors(0,0);
     else
       setMotors(-255,-255);
     break;
