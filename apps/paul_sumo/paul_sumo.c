@@ -97,6 +97,7 @@ typedef enum State
 {
   WAIT_BUTTON,
   DELAY,
+  INITIAL_SPIN,
   RUN,
   SPIN,
   ATTACK,
@@ -110,6 +111,7 @@ void updateState()
   static uint32 last_seen = 0;
   static uint8 last_on_right = 0;
   static int32 reverse;
+  static uint8 initial_random_turn = 0;
 
   if(leftSensor() && !rightSensor())
     last_on_right = 0;
@@ -124,6 +126,7 @@ void updateState()
   switch(state)
   {
   case WAIT_BUTTON:
+    initial_random_turn = !initial_random_turn;
     setMotors(0,0);
     if(buttonPressed())
     {
@@ -136,28 +139,38 @@ void updateState()
     if(getMs() - state_start > 5000)
     {
       state_start = getMs();
-      state = RUN;
+      state = INITIAL_SPIN;
     }
     LED_YELLOW((getMs() - state_start) & 0x80);
     LED_RED((getMs() - state_start) & 0x80);
     break;
+  case INITIAL_SPIN:
+    if(getMs() - state_start > 80)
+    {
+      state_start = getMs();
+      state = RUN;
+    }
+    if(initial_random_turn)
+      setMotors(-255,255);
+    else
+      setMotors(255,-255);
+    break;
   case RUN:
-    setMotors(200,200);
-    if(getMs() - state_start > 250)
+    if(getMs() - state_start > 350)
     {
       state_start = getMs();
       state = SPIN;
     }
+    if(initial_random_turn)
+      setMotors(255,100);
+    else
+      setMotors(100,255);
     break;
   case SPIN:
-    reverse = -200 + (getMs() - state_start)/16;
-    if(reverse > 50)
-      reverse = 50;
-
     if(last_on_right)
-      setMotors(200,reverse);
+      setMotors(255,-255);
     else
-      setMotors(reverse,200);
+      setMotors(-255,255);
 
 	if(leftSensor() || rightSensor())
     {
@@ -174,9 +187,9 @@ void updateState()
     else if(leftSensor() && rightSensor())
       setMotors(255,255);
 	else if(leftSensor())
-      setMotors(100,255);
+      setMotors(200,255);
 	else if(rightSensor())
-      setMotors(255,100);
+      setMotors(255,200);
 	else if(getMs() - last_seen > 50)
     {
       state_start = getMs();
@@ -184,17 +197,15 @@ void updateState()
     }
     break;
   case BACKUP:
-    if(getMs() - state_start > 300)
+    if(getMs() - state_start > 350)
     {
       state_start = getMs();
       state = ATTACK;
     }
-    else if(getMs() - state_start > 200)
-      setMotors(128,128);
-    else if(getMs() - state_start > 100)
-      setMotors(0,0);
+    else if(getMs() - state_start > 250)
+      setMotors(128,-128);
     else
-      setMotors(-255,-255);
+      setMotors(-255,-64);
     break;
   }
 }
